@@ -154,7 +154,8 @@ def next_id(items, prefix):
 def write_atomic(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:  # LF everywhere: no CRLF diffs on Windows
+        f.write(text)
     os.replace(tmp, path)
 
 
@@ -184,13 +185,16 @@ def apply(root, changes, yes=False, do_redact=False, review=True, out=print):
             out("".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True),
                                              f"a/{CTX}/{rel}", f"b/{CTX}/{rel}")).rstrip())
         if not yes:
-            if sys.stdin.isatty():
-                if input("Apply these changes? [y/N] ").strip().lower() != "y":
-                    out("Not applied.")
-                    return False
-            else:
+            try:  # Windows reports NUL as a tty, so also treat EOF as non-interactive
+                answer = input("Apply these changes? [y/N] ") if sys.stdin.isatty() else None
+            except EOFError:
+                answer = None
+            if answer is None:
                 out("Dry run: re-run with --yes to apply the diff above.")
                 raise CBError("changes not applied", code=3)
+            if answer.strip().lower() != "y":
+                out("Not applied.")
+                return False
     for f, *_ , new in pending:
         write_atomic(f, new)
     out(f"Updated: {', '.join(r for _, r, _, _ in pending)}")

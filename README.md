@@ -21,10 +21,21 @@ ContextBridge pairs a Claude skill/plugin with a zero-dependency Python CLI. The
 
 ## Install
 
+Requires Python 3.9+ and Git. No other dependencies.
+
+```bash
+pip install git+https://github.com/Abhinay2206/ContextBridge.git
+contextbridge --version
+```
+
+Or from a clone (for development):
+
 ```bash
 git clone https://github.com/Abhinay2206/ContextBridge.git && cd ContextBridge
-pip install .            # provides the `contextbridge` command (Python 3.9+, stdlib only)
+pip install .
 ```
+
+<!-- After the first PyPI release, replace with: pip install contextbridge -->
 
 ## Typical flow
 

@@ -127,7 +127,8 @@ def cmd_init(c):
         if ex.parent.is_dir():
             cur = ex.read_text(encoding="utf-8") if ex.exists() else ""
             if f"{CTX}/" not in cur.splitlines():
-                ex.write_text(cur + ("" if cur.endswith("\n") or not cur else "\n") + f"{CTX}/\n", encoding="utf-8")
+                with open(ex, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(cur + ("" if cur.endswith("\n") or not cur else "\n") + f"{CTX}/\n")
                 print(f"Added {CTX}/ to .git/info/exclude (local-only).")
         else:
             print("Not a git repo: nothing to exclude.", file=sys.stderr)
