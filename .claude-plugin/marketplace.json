@@ -1,0 +1,24 @@
+{
+  "name": "orvantia-contextbridge",
+  "owner": {
+    "name": "Orvantia"
+  },
+  "metadata": {
+    "description": "Orvantia's local-first project context handoff plugin.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "contextbridge",
+      "source": "./",
+      "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
+      "version": "0.2.0",
+      "author": {
+        "name": "Orvantia"
+      },
+      "license": "MIT",
+      "category": "development",
+      "keywords": ["context", "handoff", "checkpoint", "resume"]
+    }
+  ]
+}

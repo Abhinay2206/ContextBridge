@@ -1,0 +1,10 @@
+{
+  "name": "contextbridge",
+  "version": "0.2.0",
+  "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
+  "author": {
+    "name": "Orvantia"
+  },
+  "license": "MIT",
+  "keywords": ["context", "handoff", "project-memory", "checkpoint", "resume"]
+}
