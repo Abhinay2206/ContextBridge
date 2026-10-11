@@ -4,11 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "contextbridge-cli"
-version = "0.3.0"
+version = "0.3.1"
 description = "Verified, portable, private project memory for AI coding sessions."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 authors = [{ name = "Abhinay" }]
 keywords = ["ai", "handoff", "context", "claude", "coding-agent"]
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+- Added explicit Python 3.9 through 3.13 classifiers so package indexes can show supported Python versions.
+- PyPI publishing now runs when a version tag is pushed.
+
 ## 0.3.0
 - **Resume safety gate:** `resume` now opens with a verdict — READY (exit 0), REVIEW_REQUIRED (1) or BLOCKED (2) — and withholds the resume prompt when blocked. `resume --check` prints only the verdict; `--json` for agents. Branch change, rewritten history, missing/corrupt/unsupported state and lost git are BLOCKED.
 - **Provenance:** every work item, decision and assumption records who claimed it (`CONTEXTBRIDGE_AGENT`); completed work can be backed by passing runs via `--evidence E1`. The handoff labels observed vs claimed facts. Failed runs cannot back a completed claim.
