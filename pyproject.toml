@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "contextbridge"
+name = "contextbridge-cli"
 version = "0.2.0"
 description = "Verified, portable, private project memory for AI coding sessions."
 readme = "README.md"

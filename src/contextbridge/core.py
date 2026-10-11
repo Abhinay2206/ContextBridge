@@ -72,7 +72,7 @@ def excludes(root):
     pats = list(DEFAULT_EXCLUDES)
     f = Path(root) / ".contextbridgeignore"
     if f.exists():
-        pats += [l.strip() for l in f.read_text().splitlines() if l.strip() and not l.startswith("#")]
+        pats += [l.strip() for l in f.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
     return pats
 
 
@@ -132,7 +132,7 @@ def load(root, name, default):
     if not f.exists():
         return default
     try:
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise CBError(f"{CTX}/{name} is not valid JSON ({e}); fix or delete it")
 
@@ -154,7 +154,7 @@ def next_id(items, prefix):
 def write_atomic(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text)
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -173,7 +173,7 @@ def apply(root, changes, yes=False, do_redact=False, review=True, out=print):
                               "Remove them or re-run with --redact.")
             new = redact(new)
         f = ctx_dir(root) / rel
-        old = f.read_text() if f.exists() else ""
+        old = f.read_text(encoding="utf-8") if f.exists() else ""
         if new != old:
             pending.append((f, rel, old, new))
     if not pending:

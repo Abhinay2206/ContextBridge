@@ -120,13 +120,14 @@ def cmd_init(c):
     ch = {}
     if not (c.root / ".contextbridgeignore").exists():
         (c.root / ".contextbridgeignore").write_text(
-            "# Files matching these patterns are never recorded by ContextBridge (defaults: .env*, *.pem, *.key, ...)\n")
+            "# Files matching these patterns are never recorded by ContextBridge (defaults: .env*, *.pem, *.key, ...)\n",
+            encoding="utf-8")
     if c.a.local_only:
         ex = c.root / ".git" / "info" / "exclude"
         if ex.parent.is_dir():
-            cur = ex.read_text() if ex.exists() else ""
+            cur = ex.read_text(encoding="utf-8") if ex.exists() else ""
             if f"{CTX}/" not in cur.splitlines():
-                ex.write_text(cur + ("" if cur.endswith("\n") or not cur else "\n") + f"{CTX}/\n")
+                ex.write_text(cur + ("" if cur.endswith("\n") or not cur else "\n") + f"{CTX}/\n", encoding="utf-8")
                 print(f"Added {CTX}/ to .git/info/exclude (local-only).")
         else:
             print("Not a git repo: nothing to exclude.", file=sys.stderr)
@@ -290,14 +291,14 @@ def cmd_export(c):
     if hits and not c.a.redact:
         raise CBError("refusing to export: possible secret(s): " + ", ".join(f"{n} (line {l})" for n, l in hits[:5])
                       + ". Re-run with --redact.")
-    Path(c.a.output).write_text(redact(bundle) if hits else bundle)
+    Path(c.a.output).write_text(redact(bundle) if hits else bundle, encoding="utf-8")
     print(f"Wrote {c.a.output} ({len(bundle)} bytes, scanned: {len(hits)} secret(s) {'redacted' if hits else 'found'}).")
     return 0
 
 
 def cmd_import(c):
     try:
-        b = json.loads(Path(c.a.bundle).read_text())
+        b = json.loads(Path(c.a.bundle).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
         raise CBError(f"cannot read bundle: {e}")
     if b.get("schema") != SCHEMA:
@@ -311,7 +312,7 @@ def cmd_import(c):
 def cmd_scan(c):
     bad = 0
     for p in c.a.paths:
-        for n, line in scan(Path(p).read_text(errors="replace")):
+        for n, line in scan(Path(p).read_text(encoding="utf-8", errors="replace")):
             print(f"{p}:{line}: {n}")
             bad += 1
     print(f"{bad} possible secret(s) found." if bad else "No secrets detected.")
@@ -319,6 +320,9 @@ def cmd_scan(c):
 
 
 def main(argv=None):
+    for st in (sys.stdout, sys.stderr):
+        if hasattr(st, "reconfigure"):
+            st.reconfigure(encoding="utf-8", errors="replace")  # Windows consoles default to cp1252
     a = build().parse_args(argv)
     try:
         return globals()[f"cmd_{a.cmd}"](Ctx(a))
