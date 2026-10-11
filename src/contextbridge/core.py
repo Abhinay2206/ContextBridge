@@ -22,6 +22,11 @@ class CBError(Exception):
         self.code = code
 
 
+def author():
+    """Who wrote a claim (set CONTEXTBRIDGE_AGENT=claude-account-a etc.); never inferred."""
+    return os.environ.get("CONTEXTBRIDGE_AGENT") or "unknown"
+
+
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 

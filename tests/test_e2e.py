@@ -12,9 +12,12 @@ ENV = dict(os.environ, PYTHONPATH=SRC, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@
 
 
 class Repo:
-    def __init__(self):
+    def __init__(self, clone_of=None):
         self._t = tempfile.TemporaryDirectory()
         self.p = Path(self._t.name)
+        if clone_of:  # a real clone shares history, like a second machine/account
+            self.sh("git", "clone", "-q", str(clone_of.p), ".")
+            return
         self.sh("git", "init", "-q", "-b", "main")
         self.write("app.py", "print('v1')\n")
         self.sh("git", "add", "."), self.sh("git", "commit", "-qm", "init")
@@ -161,11 +164,11 @@ class E2E(unittest.TestCase):
         r.cb("work", "add", "tried migrations", "--status", "attempted")
         r.cb("checkpoint", "--objective", "port me", "--next", "write API")
         self.assertEqual(r.cb("export", "-o", str(r.p / "bundle.json"), yes=False).returncode, 0)
-        clone = Repo()  # different machine/account stand-in
+        clone = Repo(clone_of=r)  # different machine/account stand-in
         self.assertEqual(clone.cb("import", str(r.p / "bundle.json")).returncode, 0)
         out = clone.cb("resume").stdout
         for want in ("port me", "schema", "tried migrations", "Attempted (not confirmed working)", "Use SQLite",
-                     "Drift since checkpoint", "untrusted data"):
+                     "Resume safety gate", "untrusted data"):
             self.assertIn(want, out)
 
     def test_local_only_init_excludes_dir(self):
@@ -180,6 +183,75 @@ class E2E(unittest.TestCase):
                                             capture_output=True, text=True, encoding="utf-8", env=ENV, stdin=subprocess.DEVNULL)
             self.assertEqual(run("checkpoint").returncode, 0)
             self.assertIn("git unavailable", run("drift").stdout)
+
+    # ---- 0.3.0: resume safety gate, provenance, save
+    def _ready_repo(self):
+        r = self.r
+        r.cb("run", "--", sys.executable, "-c", "pass")
+        r.cb("work", "add", "base", "--status", "completed", "--evidence", "E1")
+        r.cb("checkpoint", "--objective", "o", "--next", "n")
+        return r
+
+    def test_gate_ready_review_blocked(self):
+        r = self._ready_repo()
+        g = r.cb("resume", "--check")
+        self.assertEqual((g.returncode, "READY" in g.stdout), (0, True), g.stdout)
+        r.write("app.py", "print('changed')\n")  # edit after checkpoint
+        g = r.cb("resume", "--check")
+        self.assertEqual(g.returncode, 1)
+        self.assertIn("REVIEW_REQUIRED", g.stdout)
+        self.assertIn("Do not edit yet", g.stdout)
+        r.sh("git", "checkout", "-qb", "other")
+        g = r.cb("resume")
+        self.assertEqual(g.returncode, 2)
+        self.assertIn("BLOCKED", g.stdout)
+        self.assertNotIn("Rules for the resuming agent", g.stdout)  # no prompt when blocked
+
+    def test_gate_json_and_missing_or_corrupt_state(self):
+        r = self.r
+        g = r.cb("resume", "--json")
+        self.assertEqual(g.returncode, 2)
+        self.assertEqual(json.loads(g.stdout)["verdict"], "BLOCKED")
+        r.cb("checkpoint")
+        (r.p / "contextbridge/state.json").write_text("{not json", encoding="utf-8")
+        g = r.cb("resume", "--check")
+        self.assertEqual(g.returncode, 2)
+        self.assertIn("not valid JSON", g.stdout)
+        (r.p / "contextbridge/state.json").write_text(json.dumps({"schema": "other/9"}), encoding="utf-8")
+        self.assertIn("unsupported schema", r.cb("resume", "--check").stdout)
+
+    def test_gate_full_resume_prompt_when_ready(self):
+        out = self._ready_repo().cb("resume").stdout
+        self.assertLess(out.index("Resume safety gate: READY"), out.index("# Session Handoff"))
+        self.assertIn("Rules for the resuming agent", out)
+
+    def test_provenance_claimed_vs_verified(self):
+        r = self.r
+        env = dict(ENV, CONTEXTBRIDGE_AGENT="claude-acct-a")
+        run = lambda *a: subprocess.run([sys.executable, "-m", "contextbridge", *a, "--yes"], cwd=r.p, capture_output=True,
+                                        text=True, encoding="utf-8", env=env, stdin=subprocess.DEVNULL)
+        run("run", "--", sys.executable, "-c", "pass")
+        run("run", "--", sys.executable, "-c", "raise SystemExit(1)")
+        run("work", "add", "backed", "--status", "completed", "--evidence", "E1")
+        run("work", "add", "bare claim", "--status", "completed")
+        bad = run("work", "add", "bad", "--status", "completed", "--evidence", "E2")  # failed run can't back a claim
+        self.assertEqual(bad.returncode, 2)
+        self.assertEqual(run("work", "add", "x", "--evidence", "E99").returncode, 2)
+        run("checkpoint")
+        h = (r.p / "contextbridge/HANDOFF.md").read_text(encoding="utf-8")
+        self.assertIn("W1: backed — verified by E1 PASSED exit 0", h)
+        self.assertIn("W2: bare claim — claimed by claude-acct-a, no linked evidence", h)
+        self.assertIn("observed", h)
+        self.assertIn("only a claim by claude-acct-a", run("drift").stdout)
+
+    def test_save_reports_validation_notes_then_checkpoints(self):
+        r = self.r
+        r.cb("decision", "add", "D", "--why", "w", "--code", "gone.py")
+        s = r.cb("save", "--objective", "o")
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertIn("Validation notes", s.stdout)
+        self.assertIn("gone.py", s.stdout)
+        self.assertEqual(r.state()["objective"], "o")
 
 
 if __name__ == "__main__":

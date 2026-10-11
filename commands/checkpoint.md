@@ -5,7 +5,7 @@ argument-hint: [optional focus or handoff note]
 
 Prefer the `contextbridge` CLI (`pip install .` from the plugin repo; falls back to the manual steps below if not on PATH). Its output is real repo evidence; never paraphrase it into something stronger.
 
-CLI: `contextbridge checkpoint --objective "..." --next "..." --next-path <file>`; record work with `contextbridge work add "..." --status completed|attempted|planned`; run tests via `contextbridge run -- <test cmd>` (only with user approval) so results are real evidence. Show the diff it prints; apply with `--yes` only after the user agrees.
+CLI: prefer `contextbridge save --objective "..." --next "..."` (validates, then checkpoints); back completed work with `contextbridge run -- <test>` and `work add ... --evidence E1`. Set CONTEXTBRIDGE_AGENT to name the writer.
 
 Create or update a ContextBridge checkpoint in `contextbridge/`.
 
