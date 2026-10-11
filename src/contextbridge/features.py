@@ -173,7 +173,7 @@ def drift(root, state, graph):
         p = Path(root) / a["file"]
         if not p.is_file():
             f.append(("stale", f"{a['id']} '{a['text']}': {a['file']} no longer exists"))
-        elif a.get("contains") and a["contains"] not in p.read_text(errors="replace"):
+        elif a.get("contains") and a["contains"] not in p.read_text(encoding="utf-8", errors="replace"):
             f.append(("stale", f"{a['id']} '{a['text']}': {a['file']} no longer contains {a['contains']!r}"))
     f += check_graph(root, graph, changed)
     ev = state["evidence"]
