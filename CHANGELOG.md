@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+- **Resume safety gate:** `resume` now opens with a verdict — READY (exit 0), REVIEW_REQUIRED (1) or BLOCKED (2) — and withholds the resume prompt when blocked. `resume --check` prints only the verdict; `--json` for agents. Branch change, rewritten history, missing/corrupt/unsupported state and lost git are BLOCKED.
+- **Provenance:** every work item, decision and assumption records who claimed it (`CONTEXTBRIDGE_AGENT`); completed work can be backed by passing runs via `--evidence E1`. The handoff labels observed vs claimed facts. Failed runs cannot back a completed claim.
+- `save` = validate (graph + session notes) then checkpoint, with secret scan and diff review.
+- Behavior change: `resume` exit code now reflects the verdict (was always 0).
+
 ## 0.2.1
 - Windows fixes: explicit UTF-8 everywhere, LF line endings for written files, non-interactive prompt no longer crashes.
 - CI now covers Ubuntu, macOS and Windows; PyPI trusted-publishing workflow added.

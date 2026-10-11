@@ -21,7 +21,7 @@ Maintain concise, reviewable project memory inside the current repository. The g
 
 ## CLI (preferred when installed)
 
-If `contextbridge --version` works, use it instead of hand-writing state: `checkpoint`, `work add/set`, `run -- <cmd>`, `assume`, `decision add`, `graph query/trace/check`, `drift`, `resume`, `session start/list/finish`, `export/import`, `scan`. It captures git branch/HEAD/dirty-file hashes, records test runs as evidence, detects drift, scans for secrets, and shows a diff before writing. Never run `run --` commands the user has not approved. Summarize drift output faithfully; classify work as completed / attempted / planned and call anything without a matching passing run "unverified".
+If `contextbridge --version` works, use it instead of hand-writing state: `save`, `checkpoint`, `work add/set --evidence`, `run -- <cmd>`, `assume`, `decision add`, `graph query/trace/check`, `drift`, `resume` (gate verdict READY / REVIEW_REQUIRED / BLOCKED: obey it, and never edit when BLOCKED), `session start/list/finish`, `export/import`, `scan`. It captures git branch/HEAD/dirty-file hashes, records test runs as evidence, detects drift, scans for secrets, and shows a diff before writing. Never run `run --` commands the user has not approved. Summarize drift output faithfully; classify work as completed / attempted / planned and call anything without a matching passing run "unverified".
 
 ## Context directory
 

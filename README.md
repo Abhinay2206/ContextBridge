@@ -1,174 +1,268 @@
+<div align="center">
+
 # ContextBridge
 
-**Verified, portable, private project memory for AI coding sessions.** Built by Orvantia.
+**Your AI coding sessions can end. Your engineering context shouldn't.**
 
-ContextBridge helps you checkpoint project state in repository-local Markdown files, then resume from another Claude account or a fresh coding session without depending on private chat history.
+[![CI](https://github.com/Abhinay2206/ContextBridge/actions/workflows/ci.yml/badge.svg)](https://github.com/Abhinay2206/ContextBridge/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/contextbridge-cli)](https://pypi.org/project/contextbridge-cli/)
+[![Python](https://img.shields.io/pypi/pyversions/contextbridge-cli)](https://pypi.org/project/contextbridge-cli/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> ContextBridge does not transfer chats, account memory, or usage allowance. It creates explicit, reviewable project notes that you control.
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Security](#security-and-privacy) · [Limitations](#limitations)
 
-## What it does
+</div>
 
-ContextBridge pairs a Claude skill/plugin with a zero-dependency Python CLI. The CLI reads the *actual* workspace, so the next account or agent inspects evidence instead of trusting a summary.
+ContextBridge preserves the **state of the work, not just the story of the conversation**. It checkpoints your project into plain files inside your own repository, records which tests were actually run, and, when a new session or a different account picks the work up, checks the checkpoint against the real workspace before anyone edits code.
 
-| Feature | Command | What it does |
+Everything is stored locally in the repository. There is no account, server, or telemetry.
+
+## Contents
+
+- [The problem](#the-problem)
+- [How it works](#how-it-works)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Example: authentication work across two sessions](#example-authentication-work-across-two-sessions)
+- [Cross-account workflow](#cross-account-workflow)
+- [Architecture](#architecture)
+- [Security and privacy](#security-and-privacy)
+- [Limitations](#limitations)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+## The problem
+
+A new AI coding session usually starts without the old conversation. That causes predictable failures:
+
+- Decisions, and the approaches that were rejected, are forgotten.
+- A handoff describes work as done that was never verified.
+- The repository changed after the handoff was written, so it is stale.
+- The next agent repeats finished work or acts on outdated assumptions.
+
+A summary written from memory cannot detect any of this. ContextBridge records evidence from the workspace and compares it again at resume time.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Work in a session"] --> B["run: record test evidence"]
+    B --> C["save: checkpoint with diff review"]
+    C --> D[("contextbridge/ in your repo")]
+    D --> E["New session or account"]
+    E --> F{"resume: safety gate"}
+    F -->|READY| G["Continue the next task"]
+    F -->|REVIEW_REQUIRED| H["Inspect findings, then continue"]
+    F -->|BLOCKED| I["Do not edit; inspect and re-save"]
+```
+
+ContextBridge carries **portable project state**: git position, uncommitted-file hashes, executed test runs, work status, decisions, and a next action. ContextBridge does not transfer chats, private chat history, account memory, or usage allowance.
+
+The resume gate returns one of three verdicts, with matching exit codes:
+
+| Verdict | Exit | Meaning |
 |---|---|---|
-| Verified state | `checkpoint`, `run -- <cmd>`, `work add` | Records branch, HEAD, uncommitted files (with hashes), and only tests that were actually executed. Work is split into completed / attempted / planned. Unfinished or failed runs are surfaced. |
-| Decision graph | `decision add`, `graph query/trace/check` | Requirement → decision → code → test links, with rejected alternatives and consequences. Flags missing files and changed code. |
-| Drift detection | `drift`, `resume` | Compares the checkpoint to the repo: branch/commit moved, files edited since, planned tasks whose files already changed, failed assumptions, stale test evidence. Exit code 1 on drift. |
-| Portability | `export`, `import`, `resume` | Plain JSON (`schema: contextbridge/1`) + agent-neutral Markdown prompt. Works across accounts, agents, machines, and fresh chats. |
-| Session coordination | `session start/list/finish` | Path claims per session; warns when claims overlap and both cover modified files. Advisory only. |
-| Privacy-first | `scan`, `.contextbridgeignore`, `init --local-only` | Local files only, no network/telemetry/account. Secret scan blocks writes/exports (or `--redact`). Default exclusions (`.env*`, `*.pem`, `*.key`, ...). Every write shows a diff first; non-interactive runs are dry-run unless `--yes`. |
+| `READY` | 0 | No conflicts detected. |
+| `REVIEW_REQUIRED` | 1 | Files edited or committed since the checkpoint, stale or failed test evidence, failed assumptions, or overlapping session claims. |
+| `BLOCKED` | 2 | No, corrupt, or unsupported checkpoint; branch changed; history rewritten; or git unavailable. The resume prompt is withheld. |
 
-## Install
+## Features
 
-Requires Python 3.9+ and Git. No other dependencies.
+| Capability | Status | Commands |
+|---|---|---|
+| Checkpoints of real git state (branch, HEAD, uncommitted files with SHA-256) | Implemented | `save`, `checkpoint` |
+| Executed-command evidence (exit code, timestamp, redacted output tail; interrupted runs stay visible) | Implemented | `run -- <cmd>` |
+| Work split into completed, attempted and planned | Implemented | `work add`, `work set` |
+| Provenance: observed facts vs. claims, with the claimant's name | Implemented | `CONTEXTBRIDGE_AGENT`, `--evidence` |
+| Decision graph: requirement → decision → code → test, with rejected alternatives | Implemented | `decision add`, `graph query`, `graph trace`, `graph check` |
+| Drift detection against the current workspace | Implemented | `drift` |
+| Resume safety gate with JSON output | Implemented | `resume`, `resume --check --json` |
+| Portable JSON bundle (`schema: contextbridge/1`) and agent-neutral resume prompt | Implemented | `export`, `import`, `resume` |
+| Secret scanning, default file exclusions, reviewed diffs before writes | Implemented | `scan`, `.contextbridgeignore`, `--redact` |
+| Local-only notes (kept out of git) | Implemented | `init --local-only` |
+| Session path claims and overlap warnings | Partial: advisory, one repository only | `session start`, `session list`, `session finish` |
+| Claude Code plugin commands and Claude skill | Partial: prompts that guide the model | see [Quick start](#quick-start) |
+| Multi-worktree and cross-clone coordination | Planned | none |
+
+## Quick start
+
+**Prerequisites:** Python 3.9 or newer and Git. The CLI has no other dependencies.
+
+### 1. Install the CLI
 
 ```bash
-pip install git+https://github.com/Abhinay2206/ContextBridge.git
+pip install contextbridge-cli
 contextbridge --version
 ```
 
-Or from a clone (for development):
-
-```bash
-git clone https://github.com/Abhinay2206/ContextBridge.git && cd ContextBridge
-pip install .
-```
-
-<!-- After the first PyPI release, replace with: pip install contextbridge-cli -->
-
-## Typical flow
-
-```bash
-cd your-repo
-contextbridge init --local-only                      # keep notes out of git (optional)
-contextbridge decision add "Use Redis for queue" --why "atomic ack" \
-  --rejected "Postgres NOTIFY: no durable ack" --requirement "Jobs survive crashes" \
-  --code src/queue.py:enqueue --test tests/test_queue.py
-contextbridge work add "queue schema" --status completed
-contextbridge run -- pytest -q                       # recorded as evidence, pass or fail
-contextbridge checkpoint --objective "ship queue" --next "add retries" --next-path src/queue.py
-# --- hit a limit; switch account / agent / machine ---
-contextbridge resume                                 # handoff + live drift report, paste into any agent
-contextbridge drift                                  # exit 1 if anything moved
-```
-
-Exit codes: `0` ok, `1` drift/overlap/failed run, `2` error or secret found, `3` diff not applied (dry run).
-
-## Positioning (honest)
-
-Similar tools exist, for example [codex-handoff-kit](https://pkg.go.dev/github.com/nnccc415/codex-handoff-kit), [Handover](https://brownlittlefish.substack.com/p/handover-a-machine-checkable-protocol), [session-handoff](https://skillselion.com/skills/softaworks/agent-toolkit/session-handoff) and [claude-mem](https://docs.claude-mem.ai/introduction). We do not claim any single feature is unique. ContextBridge aims at the *combination*: executed-evidence tracking + decision graph + drift checks + session overlap + secret-scanned reviewed writes, in one local, dependency-free tool. Benchmark against those before choosing.
-
-## What is also included
-
-
-
-- A portable Agent Skill in `skills/contextbridge/SKILL.md`.
-- A Claude Code plugin with `/contextbridge:init`, `/contextbridge:checkpoint`, `/contextbridge:resume`, and `/contextbridge:status` commands.
-- Repository-local context templates in `templates/context/`.
-- Tests: package checks plus an end-to-end CLI suite on real temp git repos.
-
-## Quick start: Claude Code plugin
-
-Requirements: Claude Code with plugin support, Git recommended, and write access to the repository where you want to store project context.
-
-### Install from a local clone
+`save`, the resume gate and provenance require version 0.3.0 or later. To work from source instead:
 
 ```bash
 git clone https://github.com/Abhinay2206/ContextBridge.git
 cd ContextBridge
+pip install .
 ```
 
-In Claude Code, add the local directory as a marketplace and install the plugin (replace the path with the absolute path to your clone):
+### 2. Initialize a project
 
-```text
-/plugin marketplace add /absolute/path/to/contextbridge-release
-/plugin install contextbridge@orvantia-contextbridge
+```bash
+cd your-repo
+contextbridge init --local-only   # optional: keep notes out of git
 ```
 
-For a published GitHub repository, the intended end-user flow is:
+### 3. Record evidence and create a checkpoint
+
+```bash
+contextbridge run -- python3 -m unittest -q
+contextbridge work add "Login endpoint" --status completed --evidence E1
+contextbridge work add "Refresh-token tests" --status planned --path tests/test_refresh.py
+contextbridge save --objective "Add token-based auth" \
+  --next "Finish refresh-token tests" --next-path tests/test_refresh.py
+```
+
+`save` shows a diff of every file it will write and asks before applying it. In non-interactive shells it prints the diff and exits with code 3 unless you pass `--yes`.
+
+### 4. Resume in a new session
+
+```bash
+contextbridge resume            # gate verdict, then the handoff prompt
+contextbridge resume --check    # verdict only
+contextbridge drift             # full list of differences
+```
+
+Paste the `resume` output into any coding assistant, or let it run the command itself.
+
+### Optional: use it from Claude
+
+These are two different mechanisms. Install the one you need.
+
+**Claude Code plugin** adds `/contextbridge:init`, `/contextbridge:checkpoint`, `/contextbridge:resume` and `/contextbridge:status`. The commands call the CLI when it is installed and otherwise guide the model through the same steps manually.
 
 ```text
 /plugin marketplace add Abhinay2206/ContextBridge
 /plugin install contextbridge@orvantia-contextbridge
 ```
 
-The GitHub flow will work only after this source is published under that repository name. This package has not created a GitHub repository or published a release for you.
+**Claude.ai skill** is a separate upload of [`dist/contextbridge-skill.zip`](dist/contextbridge-skill.zip) under Customize → Skills (menu names may vary). A browser chat cannot read your local repository or run the CLI unless you provide files or a code-execution environment.
 
-After installation, in the target project run:
+## Example: authentication work across two sessions
 
-```text
-/contextbridge:init
-/contextbridge:status
-/contextbridge:checkpoint
-```
+The scenario: one session finishes the login endpoint and records a passing test run. Refresh-token integration tests remain. The developer switches accounts, and someone edits `src/auth.py` in between.
 
-When switching accounts or starting a fresh session:
+The output below was captured from a real run of ContextBridge 0.3.0 in a temporary repository (commit hashes and timestamps vary).
 
 ```text
-/contextbridge:resume
+$ contextbridge run -- python3 -m unittest -q
+E1 `python3 -m unittest -q` -> PASSED (exit 0, 0.11s)
+
+$ contextbridge resume --check      # new session, after src/auth.py was edited
+## Resume safety gate: REVIEW_REQUIRED
+Do not edit yet. Inspect each item below, reconcile it with the code or the user, then proceed.
+
+[WARN ] src/auth.py: new uncommitted change since checkpoint
+[WARN ] no passing test run matches the current workspace state; re-run tests before trusting 'done'
 ```
 
-Review the generated files and commit them only if they contain no sensitive data.
-
-## Quick start: Claude.ai custom skill
-
-1. Create a ZIP containing the `contextbridge/` skill folder and its `SKILL.md` file. A ready-to-upload archive is provided as `dist/contextbridge-skill.zip` in the release package.
-2. In Claude, open **Customize → Skills** (the wording may vary), choose **Create skill → Upload a skill**, and upload the ZIP.
-3. Enable the skill. Code execution/file creation must be enabled where required by your plan/settings.
-4. In a project chat, ask: “Use ContextBridge to checkpoint this project” or “Use ContextBridge to resume from the project context files.”
-
-The browser skill works from files and context provided to that chat. It cannot inspect a local repository unless you provide files or use an environment that exposes the repository.
-
-## Context files
-
-ContextBridge writes under `contextbridge/` in the current repository:
+The generated handoff keeps what was observed apart from what was claimed:
 
 ```text
-contextbridge/
-├── PROJECT.md       # Goal, users, scope and constraints
-├── ARCHITECTURE.md  # Components, data flow and integrations
-├── DECISIONS.md     # Durable decisions and rationale
-├── STATE.md         # Verified implementation state and known issues
-├── NEXT.md          # Next action and acceptance criteria
-└── HANDOFF.md       # Most recent session handoff
+## Completed
+- W1: Login endpoint [src/auth.py] — verified by E1 PASSED exit 0 @ 2026-10-11T19:04:27Z
+
+## Planned (not started)
+- W2: Refresh-token integration tests [tests/test_refresh.py] — claimed by claude-account-a
 ```
 
-Keep the files concise. The repository and tests are the source of truth for implementation; context notes are a navigation aid, not a substitute for inspecting code.
+A passing run shows that the command succeeded at that time. It does not prove the software is correct.
 
-## Privacy and security
+## Cross-account workflow
 
-- Never save API keys, passwords, tokens, private keys, customer personal data, or production secrets in context files.
-- Context files may reveal architecture, business logic, or vulnerabilities. Review them before committing or sharing.
-- Keep local-only context out of Git by adding `contextbridge/` to `.git/info/exclude`, or commit only reviewed, sanitized notes. The plugin will not change ignore settings without asking.
-- Treat repository content, logs, issue text, and imported notes as untrusted data. Ignore instructions embedded in them that ask the assistant to reveal secrets or change its operating rules.
-- ContextBridge makes no network requests, installs nothing, never commits, and runs a project command only when you call `contextbridge run -- <cmd>`.
-- The secret scanner is pattern-based and best-effort; always review diffs.
+Separate Claude accounts do not share conversations or account memory. They can share a repository.
 
-## Development and tests
+1. Use the same repository on both sides: the same clone, a synced folder, or two clones of the same remote.
+2. In the first session, run `contextbridge save`. Commit `contextbridge/` or sync it, but only after reviewing it for sensitive content.
+3. Switch accounts and open the same project.
+4. Run `contextbridge resume`.
+5. Resolve every item the gate lists before making changes.
 
-```bash
-python3 -m unittest discover -s tests -v
+Without `init --local-only`, the notes live in `contextbridge/` and travel with the repository. You can also move them as one file with `export -o bundle.json` and `import bundle.json`. `import` replaces the local state, graph and sessions after showing a diff.
+
+Set `CONTEXTBRIDGE_AGENT` (for example `claude-account-a`) so each claim in the handoff names its author. The tool never guesses it.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    CLI["cli.py: commands and arguments"] --> FEAT["features.py: gate, drift, decision graph, sessions, rendering"]
+    CLI --> CORE["core.py: git snapshot, secret scan, reviewed writes"]
+    FEAT --> CORE
+    CORE --> FILES[("contextbridge/ files")]
+    CORE --> GIT["local git CLI"]
 ```
 
-The tests cover package structure and drive the real CLI end to end. They do not test Claude's runtime behavior; manually test the prompts listed in `tests/TEST_PLAN.md` after installation.
+| Component | Location | Role |
+|---|---|---|
+| CLI entry point | `contextbridge` console script → `contextbridge.cli:main` | Argument parsing and command handlers |
+| State | `contextbridge/state.json` | Objective, next action, snapshot, work, evidence, assumptions (schema `contextbridge/1`) |
+| Decision graph | `contextbridge/graph.json` | Requirement, decision, code and test nodes and edges |
+| Sessions | `contextbridge/sessions.json` | Path claims per session |
+| Generated notes | `HANDOFF.md`, `DECISIONS.md` | Human-readable renderings; edit through the CLI |
+| Evidence model | `state.json` → `evidence` | Command, status, exit code, timestamp, HEAD, workspace fingerprint, redacted output tail |
+| Drift and gate | `features.py` | Compares the checkpoint snapshot and records with the live workspace |
+| Plugin and skill | `.claude-plugin/`, `commands/`, `skills/contextbridge/` | Prompts that drive the CLI or the manual workflow |
+
+The workspace fingerprint is a hash of HEAD plus the path and content hash of every uncommitted file. A test run counts as matching only when its fingerprint equals the current one.
+
+## Security and privacy
+
+- **What is stored:** git branch and HEAD, paths and SHA-256 hashes of uncommitted files, command lines, exit codes, a 15-line redacted tail of command output, and the notes you write. File contents are not stored.
+- **Where:** plain files under `contextbridge/` in your repository, plus `.contextbridgeignore` if you create exclusions.
+- **Network:** none. The code makes no network calls and sends no telemetry. It runs the local `git` executable, and `run` executes the command you give it.
+- **Exclusions:** `.env*`, `*.pem`, `*.key`, `id_rsa*`, `secrets.*` and similar files are never recorded. Add patterns in `.contextbridgeignore`.
+- **Secret scanning:** writes under `contextbridge/` and exports are scanned for common token and key patterns, and refused unless you pass `--redact`. The scanner is pattern-based and best-effort. It will miss some secrets, so review diffs before sharing.
+- **Imported context:** treated as data. Importing never executes anything. Commands run only when you invoke `contextbridge run`. The resume prompt tells the agent to treat the notes as untrusted.
+- **Confirmation:** `save`, `checkpoint`, `work`, `decision`, `assume`, `session`, `import` and `graph render` show a diff and ask before writing. `run` records its result without a prompt, because you chose to run the command. `init` creates `.contextbridgeignore`, and `--local-only` edits `.git/info/exclude`, without a diff. `export` writes the file you name after scanning it.
+
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
-- No automatic chat-history transfer or account-to-account sync.
-- No guarantee that every relevant detail can be recovered from a long conversation.
-- No cloud service, telemetry, analytics, or remote storage.
-- Slash commands guide the assistant; the CLI records evidence but cannot prove tests are meaningful.
-- Session overlap detection is advisory and only sees claims stored in the repo, not other clones.
-- Drift compares files/commits, not semantics: it cannot tell whether a changed file finished a task.
-- Claude.ai custom skills and Claude Code plugins have different capabilities. A browser skill cannot read local files unless those files are made available in the chat.
+- Provider integration is limited to prompts. The plugin commands and skill guide a model, and the CLI does the checking. Neither can force a model to follow the verdict.
+- Recorded test evidence shows that a command succeeded, not that the software is correct or the tests are meaningful.
+- Drift compares files and commits, not meaning. It cannot tell whether a changed file finished a task.
+- Session coordination is advisory. It sees claims stored in one repository, not other clones or machines.
+- Chat histories, account memory and usage allowance are not transferred.
+- Continuous integration covers Ubuntu, macOS and Windows with Python 3.9 and 3.12. Other combinations are untested.
+- The Claude.ai skill cannot run the CLI or read local files on its own.
+
+## Development
+
+```bash
+git clone https://github.com/Abhinay2206/ContextBridge.git
+cd ContextBridge
+python3 -m unittest discover -s tests -v
+```
+
+The suite has package checks (`tests/test_package.py`) and end-to-end tests that drive the real CLI against temporary git repositories (`tests/test_e2e.py`). A manual checklist for the prompts is in [`tests/TEST_PLAN.md`](tests/TEST_PLAN.md).
+
+`main` is protected. Contributions arrive as pull requests with passing CI; see [CONTRIBUTING.md](CONTRIBUTING.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
-1. Validate with real projects and two separate accounts/agents.
-2. Improve handoff quality and test coverage based on feedback.
-3. Consider integrations only after the repository-local workflow proves useful.
+**Shipped:** checkpoints, executed-command evidence, provenance, decision graph, drift detection, resume safety gate, export and import, secret scanning, advisory session claims.
+
+**Ideas, not committed:**
+
+- Git-worktree-aware coordination.
+- A reproducible benchmark that compares plain handoff prompts with ContextBridge.
+- A compact resume bundle with on-demand recall.
+- An MCP server so other assistants can call the gate directly.
 
 ## License
 
-MIT. See `LICENSE`.
+[MIT](LICENSE). Copyright (c) 2026 Orvantia, project maintainer.
+
+---
+
+Try it on a throwaway branch, [open an issue](https://github.com/Abhinay2206/ContextBridge/issues) when something is unclear or wrong, and read [CONTRIBUTING.md](CONTRIBUTING.md) if you want to help.

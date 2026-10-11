@@ -5,7 +5,7 @@ argument-hint: [optional task override]
 
 Prefer the `contextbridge` CLI (`pip install .` from the plugin repo; falls back to the manual steps below if not on PATH). Its output is real repo evidence; never paraphrase it into something stronger.
 
-CLI: run `contextbridge resume` and act on every STALE/WARN line of its drift report before editing.
+CLI: run `contextbridge resume`. It opens with a gate verdict: READY (proceed), REVIEW_REQUIRED (inspect each listed item before editing), BLOCKED (do not edit; ask the user or re-save). Obey it. `contextbridge resume --check --json` gives just the verdict.
 
 Resume this project using `contextbridge/` notes.
 

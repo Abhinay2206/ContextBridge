@@ -7,10 +7,10 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .core import (CBError, CTX, SCHEMA, apply, ctx_dir, dump, find_root, git, load, new_state, next_id, now,
+from .core import (CBError, CTX, SCHEMA, apply, author, dump, find_root, load, new_state, next_id, now,
                    redact, scan, snapshot)
-from .features import (RESUME_RULES, add_decision, check_graph, drift, fmt_drift, fmt_node, new_graph, query,
-                       render_decisions, render_handoff, session_report, trace)
+from .features import (EXIT, GATE_ADVICE, RESUME_RULES, add_decision, check_graph, drift, fmt_drift, fmt_node, gate,
+                       new_graph, query, render_decisions, render_handoff, session_report, trace)
 
 STATUSES = ("completed", "attempted", "planned")
 
@@ -34,19 +34,23 @@ def build():
 
     c = add("init", "create contextbridge/ and privacy defaults")
     c.add_argument("--local-only", action="store_true", help="add contextbridge/ to .git/info/exclude")
-    c = add("checkpoint", "snapshot real repo state into state.json + HANDOFF.md")
-    c.add_argument("--objective")
-    c.add_argument("--next", dest="next_text")
-    c.add_argument("--next-path", action="append", default=[])
-    c.add_argument("--note")
+    for name, hlp in (("checkpoint", "snapshot real repo state into state.json + HANDOFF.md"),
+                      ("save", "validate (graph, sessions) then checkpoint, with secret scan + diff review")):
+        c = add(name, hlp)
+        c.add_argument("--objective")
+        c.add_argument("--next", dest="next_text")
+        c.add_argument("--next-path", action="append", default=[])
+        c.add_argument("--note")
     w = add("work", "track completed / attempted / planned work").add_subparsers(dest="sub", required=True)
     x = w.add_parser("add", parents=[par])
     x.add_argument("text")
     x.add_argument("--status", choices=STATUSES, default="planned")
     x.add_argument("--path", action="append", default=[])
+    x.add_argument("--evidence", action="append", default=[], help="passing run id (E1) that backs this item")
     x = w.add_parser("set", parents=[par])
     x.add_argument("id")
     x.add_argument("status", choices=STATUSES)
+    x.add_argument("--evidence", action="append", default=[])
     c = add("run", "run a command and record the real result as evidence")
     c.add_argument("--timeout", type=int, default=600)
     c.add_argument("argv", nargs=argparse.REMAINDER, help="-- command ...")
@@ -68,7 +72,9 @@ def build():
     c = add("drift", "compare the checkpoint with the actual repository")
     c.add_argument("--json", action="store_true")
     add("status", "verified state vs claims, plus drift")
-    add("resume", "print an agent-neutral resume prompt (with drift report)")
+    c = add("resume", "resume safety gate + agent-neutral resume prompt (exit 0 READY, 1 REVIEW_REQUIRED, 2 BLOCKED)")
+    c.add_argument("--check", action="store_true", help="print only the gate verdict")
+    c.add_argument("--json", action="store_true")
     s = add("session", "multi-session coordination").add_subparsers(dest="sub", required=True)
     x = s.add_parser("start", parents=[par])
     x.add_argument("name")
@@ -92,9 +98,15 @@ class Ctx:
     def __init__(self, a):
         self.a = a
         self.root = find_root(a.root)
-        self.state = load(self.root, "state.json", None)
-        self.graph = load(self.root, "graph.json", None)
-        self.sessions = load(self.root, "sessions.json", None)
+        self.err = None
+        try:
+            self.state = load(self.root, "state.json", None)
+            self.graph = load(self.root, "graph.json", None)
+            self.sessions = load(self.root, "sessions.json", None)
+        except CBError as e:
+            if a.cmd != "resume":
+                raise
+            self.err, self.state, self.graph, self.sessions = str(e), None, None, None
 
     def need(self):
         if self.state is None:
@@ -148,16 +160,32 @@ def cmd_checkpoint(c):
     return 0 if c.save() else 3
 
 
+def cmd_save(c):
+    c.need()
+    warn = check_graph(c.root, c.graph) + session_report(c.sessions, [d["path"] for d in snapshot(c.root)["dirty"]])
+    if warn:
+        print("Validation notes (not blocking):\n" + fmt_drift(warn) + "\n")
+    return cmd_checkpoint(c)
+
+
 def cmd_work(c):
     c.need()
+    ev = {e["id"]: e for e in c.state["evidence"]}
+    for i in c.a.evidence:
+        if i not in ev:
+            raise CBError(f"unknown evidence {i}; record one with `contextbridge run -- <cmd>`")
+        if ev[i]["status"] != "passed":
+            raise CBError(f"evidence {i} is {ev[i]['status']}, not passed; it cannot back a completed claim")
     if c.a.sub == "add":
         c.state["work"].append({"id": next_id(c.state["work"], "W"), "status": c.a.status, "text": c.a.text,
-                                "paths": c.a.path, "ts": now()})
+                                "paths": c.a.path, "evidence": c.a.evidence, "by": author(), "ts": now()})
     else:
         w = next((w for w in c.state["work"] if w["id"] == c.a.id), None)
         if not w:
             raise CBError(f"no work item {c.a.id}")
         w["status"] = c.a.status
+        w["evidence"] = sorted(set(w.get("evidence", [])) | set(c.a.evidence))
+        w["by"] = author()
     return 0 if c.save() else 3
 
 
@@ -192,7 +220,7 @@ def cmd_run(c):
 def cmd_assume(c):
     c.need()
     c.state["assumptions"].append({"id": next_id(c.state["assumptions"], "A"), "text": c.a.text,
-                                   "file": c.a.file, "contains": c.a.contains})
+                                   "file": c.a.file, "contains": c.a.contains, "by": author()})
     return 0 if c.save() else 3
 
 
@@ -251,15 +279,17 @@ def cmd_status(c):
 
 
 def cmd_resume(c):
-    c.need()
-    if not c.state["snapshot"]:
-        raise CBError("no checkpoint found; nothing to resume")
-    cur, f = drift(c.root, c.state, c.graph)
-    f += session_report(c.sessions, [d["path"] for d in cur["dirty"]])
-    print(render_handoff(c.state, c.graph))
-    print("## Drift since checkpoint (computed just now)\n" + fmt_drift(f) + "\n")
-    print(RESUME_RULES)
-    return 0
+    if not c.err:
+        c.need()
+    v, f, _ = gate(c.root, c.state, c.graph, c.sessions, c.err)
+    if c.a.json:
+        print(json.dumps({"verdict": v, "findings": [{"level": l, "message": m} for l, m in f]}, indent=2))
+        return EXIT[v]
+    print(f"## Resume safety gate: {v}\n{GATE_ADVICE[v]}\n\n{fmt_drift(f)}\n")
+    if not c.a.check and c.state and c.state.get("snapshot") and v != "BLOCKED":
+        print(render_handoff(c.state, c.graph))
+        print(RESUME_RULES)
+    return EXIT[v]
 
 
 def cmd_session(c):
