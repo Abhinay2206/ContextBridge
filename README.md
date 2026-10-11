@@ -35,7 +35,7 @@ git clone https://github.com/Abhinay2206/ContextBridge.git && cd ContextBridge
 pip install .
 ```
 
-<!-- After the first PyPI release, replace with: pip install contextbridge -->
+<!-- After the first PyPI release, replace with: pip install contextbridge-cli -->
 
 ## Typical flow
 

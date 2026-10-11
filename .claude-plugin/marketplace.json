@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Orvantia's local-first project context handoff plugin.",
-    "version": "0.2.0"
+    "version": "0.2.1"
   },
   "plugins": [
     {
       "name": "contextbridge",
       "source": "./",
       "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "Orvantia"
       },
