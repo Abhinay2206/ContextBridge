@@ -261,7 +261,7 @@ The suite has package checks (`tests/test_package.py`) and end-to-end tests that
 
 ## License
 
-[MIT](LICENSE). Copyright (c) 2026 Orvantia, project maintainer.
+[MIT](LICENSE). Copyright (c) 2026 Abhinay, project maintainer.
 
 ---
 
