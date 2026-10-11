@@ -173,7 +173,7 @@ def cmd_run(c):
     c.save(review=False)  # persisted first so an interrupted run stays visible as "never finished"
     t0 = time.time()
     try:
-        r = subprocess.run(argv, cwd=c.root, capture_output=True, text=True, timeout=c.a.timeout)
+        r = subprocess.run(argv, cwd=c.root, capture_output=True, text=True, errors="replace", timeout=c.a.timeout)
         ev["exit"], out = r.returncode, (r.stdout + r.stderr)
         ev["status"] = "passed" if r.returncode == 0 else "failed"
     except subprocess.TimeoutExpired:

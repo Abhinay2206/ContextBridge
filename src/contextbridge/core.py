@@ -56,7 +56,7 @@ def redact(text):
 def git(root, *args):
     """stdout on success, None on failure / git missing."""
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     except FileNotFoundError:
         return None
     return r.stdout if r.returncode == 0 else None

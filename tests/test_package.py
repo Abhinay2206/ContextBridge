@@ -8,12 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PackageTests(unittest.TestCase):
     def test_plugin_manifest_is_valid(self):
-        manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+        manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["name"], "contextbridge")
         self.assertTrue(manifest["version"])
 
     def test_skill_frontmatter_and_required_fields(self):
-        skill = (ROOT / "skills/contextbridge/SKILL.md").read_text()
+        skill = (ROOT / "skills/contextbridge/SKILL.md").read_text(encoding="utf-8")
         self.assertTrue(skill.startswith("---\n"))
         frontmatter = skill.split("---", 2)[1]
         self.assertRegex(frontmatter, r"(?m)^name: contextbridge$")
@@ -26,7 +26,7 @@ class PackageTests(unittest.TestCase):
         for name in ("init", "checkpoint", "resume", "status"):
             path = ROOT / "commands" / f"{name}.md"
             self.assertTrue(path.exists(), f"Missing command: {name}")
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
             self.assertTrue(content.startswith("---\n"), name)
             self.assertIn("description:", content, name)
 
@@ -34,18 +34,18 @@ class PackageTests(unittest.TestCase):
         for name in ("PROJECT", "ARCHITECTURE", "DECISIONS", "STATE", "NEXT", "HANDOFF"):
             path = ROOT / "templates/context" / f"{name}.md"
             self.assertTrue(path.exists(), f"Missing template: {name}")
-            self.assertGreater(len(path.read_text().strip()), 30)
+            self.assertGreater(len(path.read_text(encoding="utf-8").strip()), 30)
 
     def test_security_and_limitations_are_documented(self):
-        readme = (ROOT / "README.md").read_text().lower()
-        security = (ROOT / "SECURITY.md").read_text().lower()
+        readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+        security = (ROOT / "SECURITY.md").read_text(encoding="utf-8").lower()
         self.assertIn("does not transfer chats", readme)
         self.assertIn("never store", security)
         self.assertIn("no server", security)
         self.assertIn("best-effort", security)
 
     def test_manual_test_plan_exists(self):
-        plan = (ROOT / "tests/TEST_PLAN.md").read_text()
+        plan = (ROOT / "tests/TEST_PLAN.md").read_text(encoding="utf-8")
         self.assertGreaterEqual(len(re.findall(r"(?m)^## Test \d+", plan)), 6)
 
 

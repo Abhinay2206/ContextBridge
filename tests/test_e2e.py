@@ -23,19 +23,19 @@ class Repo:
         self._t.cleanup()
 
     def sh(self, *a):
-        return subprocess.run(a, cwd=self.p, capture_output=True, text=True, env=ENV)
+        return subprocess.run(a, cwd=self.p, capture_output=True, text=True, encoding="utf-8", env=ENV)
 
     def cb(self, *a, yes=True):
         return subprocess.run([sys.executable, "-m", "contextbridge", *a, *(["--yes"] if yes else [])],
-                              cwd=self.p, capture_output=True, text=True, env=ENV, stdin=subprocess.DEVNULL)
+                              cwd=self.p, capture_output=True, text=True, encoding="utf-8", env=ENV, stdin=subprocess.DEVNULL)
 
     def write(self, name, text):
         f = self.p / name
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text)
+        f.write_text(text, encoding="utf-8")
 
     def state(self):
-        return json.loads((self.p / "contextbridge/state.json").read_text())
+        return json.loads((self.p / "contextbridge/state.json").read_text(encoding="utf-8"))
 
 
 class E2E(unittest.TestCase):
@@ -50,7 +50,7 @@ class E2E(unittest.TestCase):
         s = r.state()["snapshot"]
         self.assertEqual(s["branch"], "main")
         self.assertEqual([d["path"] for d in s["dirty"]], ["app.py"])
-        self.assertIn("planned", (r.p / "contextbridge/HANDOFF.md").read_text().lower())
+        self.assertIn("planned", (r.p / "contextbridge/HANDOFF.md").read_text(encoding="utf-8").lower())
         # own notes never count as drift; unverified state is still flagged
         d = r.cb("drift")
         self.assertNotIn("contextbridge/", d.stdout)
@@ -97,7 +97,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(p.returncode, 2)
         self.assertNotIn(key, p.stdout + p.stderr)
         self.assertEqual(r.cb("checkpoint", "--note", f"aws {key}", "--redact").returncode, 0)
-        blob = "".join(f.read_text() for f in (r.p / "contextbridge").iterdir())
+        blob = "".join(f.read_text(encoding="utf-8") for f in (r.p / "contextbridge").iterdir())
         self.assertNotIn(key, blob)
         r.write(".env", "TOKEN=abc12345xyz\n")
         r.write("server.pem", "x")
@@ -126,7 +126,7 @@ class E2E(unittest.TestCase):
         t = r.cb("graph", "trace", "D1").stdout
         for want in ("Jobs survive worker crash", "src/queue.py:enqueue", "tests/test_queue.py"):
             self.assertIn(want, t)
-        self.assertIn("Postgres LISTEN/NOTIFY", (r.p / "contextbridge/DECISIONS.md").read_text())
+        self.assertIn("Postgres LISTEN/NOTIFY", (r.p / "contextbridge/DECISIONS.md").read_text(encoding="utf-8"))
         self.assertEqual(r.cb("graph", "check").returncode, 0)
         (r.p / "src/queue.py").unlink()
         c = r.cb("graph", "check")
@@ -171,13 +171,13 @@ class E2E(unittest.TestCase):
     def test_local_only_init_excludes_dir(self):
         r = self.r
         r.cb("init", "--local-only")
-        self.assertIn("contextbridge/", (r.p / ".git/info/exclude").read_text())
+        self.assertIn("contextbridge/", (r.p / ".git/info/exclude").read_text(encoding="utf-8"))
         self.assertEqual(r.sh("git", "status", "--porcelain").stdout.strip(), "?? .contextbridgeignore")
 
     def test_works_without_git(self):
         with tempfile.TemporaryDirectory() as d:
             run = lambda *a: subprocess.run([sys.executable, "-m", "contextbridge", *a, "--yes"], cwd=d,
-                                            capture_output=True, text=True, env=ENV, stdin=subprocess.DEVNULL)
+                                            capture_output=True, text=True, encoding="utf-8", env=ENV, stdin=subprocess.DEVNULL)
             self.assertEqual(run("checkpoint").returncode, 0)
             self.assertIn("git unavailable", run("drift").stdout)
 
