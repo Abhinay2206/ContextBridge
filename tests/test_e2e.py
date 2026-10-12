@@ -244,6 +244,51 @@ class E2E(unittest.TestCase):
         self.assertIn("observed", h)
         self.assertIn("only a claim by claude-acct-a", run("drift").stdout)
 
+    # ---- 0.3.2 fixes
+    def test_nested_repo_changes_are_detected(self):
+        r = self.r
+        n = r.p / "vendor" / "lib"
+        n.mkdir(parents=True)
+        for c in ("git init -q -b main", "git add -A", "git commit -qm n"):
+            if c == "git add -A": (n / "x.py").write_text("1\n", encoding="utf-8")
+            subprocess.run(c, shell=True, cwd=n, env=ENV, capture_output=True)
+        r.cb("run", "--", sys.executable, "-c", "pass")
+        r.cb("checkpoint", "--objective", "o")
+        snap = r.state()["snapshot"]["dirty"]
+        self.assertEqual([(d["path"], d["status"]) for d in snap], [("vendor/lib/", "nested-repo")])
+        self.assertEqual(r.cb("resume", "--check").returncode, 0)  # untouched nested repo: no false alarm
+        (n / "x.py").write_text("CHANGED\n", encoding="utf-8")
+        subprocess.run("git commit -qam more", shell=True, cwd=n, env=ENV, capture_output=True)
+        g = r.cb("resume", "--check")
+        self.assertEqual(g.returncode, 1, g.stdout)
+        self.assertIn("vendor/lib/", g.stdout)
+
+    def test_handoff_is_capped_but_state_keeps_everything(self):
+        r = self.r
+        r.cb("checkpoint", "--objective", "o")
+        st = r.state()
+        st["work"] = [dict(id=f"W{i}", status="completed", text=f"task {i}", paths=[], evidence=[], by="x", ts="t") for i in range(1, 201)]
+        (r.p / "contextbridge/state.json").write_text(json.dumps(st), encoding="utf-8")
+        r.cb("checkpoint")
+        h = (r.p / "contextbridge/HANDOFF.md").read_text(encoding="utf-8")
+        self.assertIn("W200:", h)
+        self.assertNotIn("W1:", h)
+        self.assertIn("175 older item(s) not shown", h)
+        self.assertLess(len(h), 8000)
+        self.assertEqual(len(r.state()["work"]), 200)
+        out = r.cb("resume", "--check").stdout
+        self.assertIn("197 more completed items are only claims", out)
+        self.assertLess(len(out), 2500)
+
+    def test_status_with_checkpoint_does_not_crash(self):
+        r = self.r
+        self.assertIn("No checkpoint yet", r.cb("status").stdout)
+        r.cb("checkpoint", "--objective", "obj")
+        s = r.cb("status")
+        self.assertEqual(s.returncode, 0, s.stderr)
+        self.assertIn("Objective: obj", s.stdout)
+        self.assertNotIn("Traceback", s.stderr)
+
     def test_save_reports_validation_notes_then_checkpoints(self):
         r = self.r
         r.cb("decision", "add", "D", "--why", "w", "--code", "gone.py")
