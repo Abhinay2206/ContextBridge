@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Abhinay's local-first project context handoff plugin.",
-    "version": "0.3.1"
+    "version": "0.3.2"
   },
   "plugins": [
     {
       "name": "contextbridge",
       "source": "./",
       "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "author": {
         "name": "Abhinay"
       },

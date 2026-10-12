@@ -38,7 +38,14 @@ PATTERNS = [
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
     ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
-    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")),
+    ("stripe-key", re.compile(r"\b[sr]k_(?:live|test)_[0-9A-Za-z]{16,}\b")),
+    ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}")),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}")),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    ("twilio-key", re.compile(r"\bSK[0-9a-f]{32}\b")),
+    ("azure-key", re.compile(r"((?:AccountKey|SharedAccessKey)=)(?!\[REDACTED)([A-Za-z0-9+/=]{20,})")),
+    ("url-password", re.compile(r"(\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:)(?!\[REDACTED)([^\s/@]{3,})(?=@)")),
     ("api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")),
     ("generic-secret", re.compile(
@@ -94,6 +101,27 @@ def sha256_file(p):
     return h.hexdigest()
 
 
+def nested_fingerprint(d, pats):
+    """Hash a nested repo's HEAD plus the content of its own changed files, so edits and commits inside it show up."""
+    head = (git(d, "rev-parse", "HEAD") or "").strip()
+    h = hashlib.sha256(head.encode())
+    parts = (git(d, "status", "--porcelain=v1", "-z", "-uall") or "").split("\0")
+    i = 0
+    while i < len(parts):
+        e = parts[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        if e[0] in "RC":
+            i += 1
+        rel = e[3:]
+        if is_excluded(rel, pats):
+            continue
+        f = Path(d) / rel
+        h.update(f"{rel}:{sha256_file(f) if f.is_file() else 'gone'}".encode())
+    return "nested:" + h.hexdigest()
+
+
 def snapshot(root):
     """Evidence read from the real workspace, not from anyone's memory of it."""
     root = Path(root)
@@ -120,6 +148,8 @@ def snapshot(root):
         f = root / p
         if f.is_file():
             dirty.append({"path": p, "status": "untracked" if xy == "??" else "modified", "sha256": sha256_file(f)})
+        elif f.is_dir():  # nested git repo or submodule: git reports the directory, not its files
+            dirty.append({"path": p, "status": "nested-repo", "sha256": nested_fingerprint(f, pats)})
         else:
             dirty.append({"path": p, "status": "deleted", "sha256": "deleted"})
     dirty.sort(key=lambda d: d["path"])

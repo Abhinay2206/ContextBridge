@@ -273,6 +273,7 @@ def cmd_status(c):
           f"{sum(e['status'] == 'failed' for e in ev)} failed, {sum(e['status'] == 'running' for e in st['evidence'])} unfinished")
     if st["snapshot"]:
         print("\nDrift:")
+        c.a.json = False
         return cmd_drift(c)
     print("No checkpoint yet.")
     return 0

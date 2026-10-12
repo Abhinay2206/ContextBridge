@@ -192,10 +192,13 @@ def drift(root, state, graph):
         claimed = any(w["status"] == "completed" for w in state["work"])
         f.append(("warn" if claimed else "info", "no test runs recorded; nothing is verified (use `contextbridge run -- <cmd>`)"))
     ids = {e["id"] for e in ev}
-    for w in state["work"]:
-        if w["status"] == "completed" and not any(i in ids for i in w.get("evidence", [])):
-            f.append(("info", f"{w['id']} '{w['text']}' is marked completed but is only a claim by {w.get('by', 'unknown')} "
-                              "(no linked test run; use --evidence)"))
+    bare = [w for w in state["work"] if w["status"] == "completed" and not any(i in ids for i in w.get("evidence", []))]
+    for w in bare[:3]:
+        f.append(("info", f"{w['id']} '{w['text']}' is marked completed but is only a claim by {w.get('by', 'unknown')} "
+                          "(no linked test run; use --evidence)"))
+    if len(bare) > 3:  # one summary line keeps the gate output bounded on long projects
+        f.append(("info", f"{len(bare) - 3} more completed items are only claims, with no linked test run "
+                          f"({', '.join(w['id'] for w in bare[3:8])}{', …' if len(bare) > 8 else ''})"))
     f.sort(key=lambda x: LEVELS[x[0]])
     return cur, f
 
@@ -267,6 +270,16 @@ def _prov(w, ev):
     return f"claimed by {w.get('by', 'unknown')}, no linked evidence"
 
 
+CAP = 25  # a long-running project must not make the handoff grow without bound
+
+
+def _capped(lines):
+    """Keep the newest CAP lines and say how many older ones were left out."""
+    if len(lines) <= CAP:
+        return lines
+    return [f"- … {len(lines) - CAP} older item(s) not shown; the full list is in state.json"] + lines[-CAP:]
+
+
 def render_handoff(state, graph):
     s = state.get("snapshot") or {}
     ev = {e["id"]: e for e in state["evidence"]}
@@ -281,19 +294,19 @@ def render_handoff(state, graph):
     for status, title in (("completed", "Completed"), ("attempted", "Attempted (not confirmed working)"), ("planned", "Planned (not started)")):
         o.append(f"## {title}")
         items = [w for w in state["work"] if w["status"] == status]
-        o += [f"- {w['id']}: {w['text']}" + (f" [{', '.join(w['paths'])}]" if w["paths"] else "")
-              + f" — {_prov(w, ev) if status == 'completed' else 'claimed by ' + w.get('by', 'unknown')}" for w in items] or ["- none"]
+        o += _capped([f"- {w['id']}: {w['text']}" + (f" [{', '.join(w['paths'])}]" if w["paths"] else "")
+                       + f" — {_prov(w, ev) if status == 'completed' else 'claimed by ' + w.get('by', 'unknown')}" for w in items]) or ["- none"]
         o.append("")
     o.append("## Verification evidence (observed: executed commands)")
     o += [f"- {e['id']} `{e['cmd']}` -> {e['status'].upper()}" + (f" (exit {e['exit']})" if e.get("exit") is not None else "")
           + f" at {e['ts']}" + (" [matches checkpoint state]" if s and e["fingerprint"] == s.get("fingerprint") else "")
           for e in state["evidence"][-10:]] or ["- none: nothing has been verified by execution"]
     o += ["", "## Uncommitted changes at checkpoint"]
-    o += [f"- {d['path']} ({d['status']})" for d in s.get("dirty", [])] or ["- none"]
+    o += _capped([f"- {d['path']} ({d['status']})" for d in s.get("dirty", [])]) or ["- none"]
     o += ["", "## Assumptions (claimed; checkable ones are re-checked by drift)"]
-    o += [f"- {a['id']}: {a['text']} (by {a.get('by', 'unknown')})" + (f" [{a['file']} contains {a['contains']!r}]" if a.get("contains") else "") for a in state["assumptions"]] or ["- none"]
+    o += _capped([f"- {a['id']}: {a['text']} (by {a.get('by', 'unknown')})" + (f" [{a['file']} contains {a['contains']!r}]" if a.get("contains") else "") for a in state["assumptions"]]) or ["- none"]
     o += ["", "## Decisions"]
-    o += [f"- {k}: {n['title']} — {n['why']} (claimed by {n.get('by', 'unknown')})" for k, n in sorted(graph["nodes"].items()) if n["type"] == "decision"] or ["- none"]
+    o += _capped([f"- {k}: {n['title']} — {n['why']} (claimed by {n.get('by', 'unknown')})" for k, n in sorted(graph["nodes"].items(), key=lambda kv: (len(kv[0]), kv[0])) if n["type"] == "decision"]) or ["- none"]
     o += ["", "## Next action"]
     nx = state.get("next")
     o += [f"- {nx['text']}" + (f" [{', '.join(nx['paths'])}]" if nx["paths"] else "")] if nx else ["- not set"]

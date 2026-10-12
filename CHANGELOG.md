@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
+- Fix: a nested git repository (or submodule) was recorded as a deleted file, so edits and commits inside it were never detected and the gate wrongly said READY. Its HEAD and changed files are now fingerprinted.
+- Secret scanner: added Stripe, SendGrid, GitHub fine-grained, npm, Twilio, Azure key and URL-embedded password patterns; Google keys ending in `-` are now caught.
+- The handoff now lists at most the newest 25 work items, assumptions, decisions and uncommitted files, and says how many older ones were left out (the full data stays in `state.json`).
+- Fix: `contextbridge status` crashed with a traceback when a checkpoint existed.
 - Fix: `contextbridge --version` reported 0.3.0 for the 0.3.1 release; a test now keeps the version identical across `pyproject.toml`, `__init__.py` and both plugin manifests.
 - Project owner/author is now Abhinay in the plugin manifests. **Breaking for plugin users:** the marketplace is now `abhinay-contextbridge`, so install with `/plugin install contextbridge@abhinay-contextbridge` (re-add the marketplace if you installed it before).
 
