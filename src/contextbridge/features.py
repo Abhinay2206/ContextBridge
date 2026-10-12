@@ -155,14 +155,15 @@ def drift(root, state, graph):
         f.append(("warn", "could not diff commits; file comparison incomplete"))
     od = {d["path"]: d["sha256"] for d in old["dirty"]}
     cd = {d["path"]: d["sha256"] for d in cur["dirty"]}
-    for p, h in od.items():
-        if p not in cd:
-            f.append(("info", f"{p}: was uncommitted at checkpoint, now clean (committed or reverted)"))
-        elif cd[p] != h:
-            f.append(("warn", f"{p}: edited after checkpoint"))
-    for p in cd:
-        if p not in od:
-            f.append(("warn", f"{p}: new uncommitted change since checkpoint"))
+    cleaned = [p for p in od if p not in cd]
+    edited = [p for p, h in od.items() if p in cd and cd[p] != h]
+    added = [p for p in cd if p not in od]
+    for lvl, paths, msg in (("info", cleaned, "was uncommitted at checkpoint, now clean (committed or reverted)"),
+                            ("warn", edited, "edited after checkpoint"), ("warn", added, "new uncommitted change since checkpoint")):
+        for p in paths[:LIST_CAP]:
+            f.append((lvl, f"{p}: {msg}"))
+        if len(paths) > LIST_CAP:  # keep the gate output bounded when hundreds of files changed
+            f.append((lvl, f"... and {len(paths) - LIST_CAP} more files: {msg}"))
     for w in state["work"] + ([dict(state["next"], id="next", status="planned")] if state.get("next") else []):
         hit = sorted(set(w.get("paths", [])) & changed)
         if w["status"] in ("planned", "attempted") and hit:
@@ -221,7 +222,10 @@ def gate(root, state, graph, sessions=None, err=None):
         why = None
     if why:
         return "BLOCKED", [("block", str(why))], None
-    cur, f = drift(root, state, graph)
+    try:
+        cur, f = drift(root, state, graph)
+    except (KeyError, TypeError, AttributeError, ValueError) as e:  # damaged or hand-edited notes must not crash the gate
+        return "BLOCKED", [("block", f"the notes are malformed ({type(e).__name__}: {e}); restore them or run `contextbridge save` again")], None
     if sessions:
         f += session_report(sessions, [d["path"] for d in cur["dirty"]])
     f.sort(key=lambda x: LEVELS[x[0]])
@@ -270,6 +274,7 @@ def _prov(w, ev):
     return f"claimed by {w.get('by', 'unknown')}, no linked evidence"
 
 
+LIST_CAP = 5  # findings listed per kind before collapsing into a count
 CAP = 25  # a long-running project must not make the handoff grow without bound
 
 

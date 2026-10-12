@@ -1,4 +1,5 @@
 """Storage, git evidence, secret scanning and reviewed writes. Stdlib only, no network."""
+import contextlib
 import difflib
 import fnmatch
 import hashlib
@@ -22,6 +23,56 @@ class CBError(Exception):
         self.code = code
 
 
+def _try_lock(f):
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:  # Windows
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+
+
+def _unlock(f):
+    try:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_UN)
+    except ImportError:
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+@contextlib.contextmanager
+def lock(root, timeout=30):
+    """Exclusive lock around read-modify-write of the notes, so parallel writers cannot overwrite each other.
+
+    The lock file lives in the git dir when there is one (so it never appears as a change in the working tree).
+    """
+    gd = (git(root, "rev-parse", "--absolute-git-dir") or "").strip()
+    path = Path(gd) / "contextbridge.lock" if gd else ctx_dir(root) / ".lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a+")
+    f.write(" ") if f.tell() == 0 else None
+    f.flush()
+    deadline = time.time() + timeout
+    try:
+        while True:
+            try:
+                _try_lock(f)
+                break
+            except OSError:
+                if time.time() > deadline:
+                    raise CBError("another contextbridge process is writing the notes; try again in a moment")
+                time.sleep(0.02)
+        yield
+    finally:
+        try:
+            _unlock(f)
+        finally:
+            f.close()
+
+
 def author():
     """Who wrote a claim (set CONTEXTBRIDGE_AGENT=claude-account-a etc.); never inferred."""
     return os.environ.get("CONTEXTBRIDGE_AGENT") or "unknown"
@@ -32,24 +83,34 @@ def now():
 
 
 # ---------------------------------------------------------------- secrets
-_VAL = r"(?!\[REDACTED)(?=[^\s'\"]*\d)(?=[^\s'\"]*[A-Za-z])[^\s'\"]{8,}"
+_KEYS = r"(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)\w*[\"']?\s*[:=]\s*"
+_MIX = r"(?=[^\s'\"]*\d)(?=[^\s'\"]*[A-Za-z])"  # a value with both letters and digits
 PATTERNS = [
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}")),
+    ("gitlab-token", re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}")),
     ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
     ("google-api-key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}(?![0-9A-Za-z_-])")),
     ("stripe-key", re.compile(r"\b[sr]k_(?:live|test)_[0-9A-Za-z]{16,}\b")),
     ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}")),
-    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}")),
     ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    ("pypi-token", re.compile(r"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}")),
+    ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}\b")),
+    ("digitalocean-token", re.compile(r"\bdo[opr]_v1_[a-f0-9]{64}\b")),
+    ("shopify-token", re.compile(r"\bshp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}\b")),
+    ("mailchimp-key", re.compile(r"\b[0-9a-f]{32}-us\d{1,2}\b")),
+    ("telegram-bot-token", re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b")),
     ("twilio-key", re.compile(r"\bSK[0-9a-f]{32}\b")),
-    ("azure-key", re.compile(r"((?:AccountKey|SharedAccessKey)=)(?!\[REDACTED)([A-Za-z0-9+/=]{20,})")),
-    ("url-password", re.compile(r"(\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:)(?!\[REDACTED)([^\s/@]{3,})(?=@)")),
     ("api-key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")),
-    ("generic-secret", re.compile(
-        r"(?i)((?:password|passwd|secret|token|api[_-]?key|access[_-]?key)\w*[\"']?\s*[:=]\s*[\"']?)(" + _VAL + ")")),
+    ("azure-key", re.compile(r"((?:AccountKey|SharedAccessKey)=)(?!\[REDACTED)([A-Za-z0-9+/=]{20,})")),
+    ("url-password", re.compile(r"(\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@]+:)(?!\[REDACTED)([^\s/@]{3,})(?=@)")),
+    # generic key = value. A quoted literal may contain anything; an unquoted value must look like a literal, not code
+    # (no calls, indexing or attribute chains), which keeps `token = self._fp.read(1)[0]` out.
+    ("generic-secret", re.compile(r"(?i)(" + _KEYS + r"[\"'])(?!\[REDACTED)" + _MIX + r"([^\"'\s]{8,})")),
+    ("generic-secret", re.compile(r"(?i)(" + _KEYS + r")(?![\"'])(?!\[REDACTED)" + _MIX + r"([^\s'\"()\[\]{}<>,;]{8,})(?=[\s,;)\]}'\"]|$)")),
 ]
 
 
@@ -167,9 +228,12 @@ def load(root, name, default):
     if not f.exists():
         return default
     try:
-        return json.loads(f.read_text(encoding="utf-8"))
+        obj = json.loads(f.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise CBError(f"{CTX}/{name} is not valid JSON ({e}); fix or delete it")
+    if not isinstance(obj, dict):
+        raise CBError(f"{CTX}/{name} is not a JSON object (found {type(obj).__name__}); fix or delete it")
+    return obj
 
 
 def dump(obj):

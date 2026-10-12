@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+- **Concurrency:** parallel writers no longer overwrite each other. Commands that change the notes now take an exclusive lock (kept in the git dir), and `run` re-reads the notes before recording its result, so a long test command never blocks other writers or loses entries. Benchmarked: 8 parallel writers previously lost 35 of 40 evidence entries; now none.
+- **Malformed notes:** a `state.json`, `graph.json` or `sessions.json` that is not a JSON object, or that is missing required keys, now gives a clear BLOCKED verdict instead of a Python traceback.
+- **Bounded gate output:** at most 5 findings are listed per kind of change; the rest are summarized as a count (1,000 new files used to print 1,000 lines, about 15,000 tokens).
+- **Notes safety:** `save` warns when `contextbridge/` is untracked and not ignored, because `git stash -u` and `git clean -fd` would delete it; it suggests committing it or `init --local-only`.
+- **Secret scanner:** the generic `key = value` rule no longer flags code such as `token = self._fp.read(1)[0]` (unquoted values must look like literals; quoted literals are still caught). Added GitLab, Hugging Face, PyPI, DigitalOcean, Shopify, Mailchimp and Telegram token patterns.
+
 ## 0.3.2
 - Fix: a nested git repository (or submodule) was recorded as a deleted file, so edits and commits inside it were never detected and the gate wrongly said READY. Its HEAD and changed files are now fingerprinted.
 - Secret scanner: added Stripe, SendGrid, GitHub fine-grained, npm, Twilio, Azure key and URL-embedded password patterns; Google keys ending in `-` are now caught.

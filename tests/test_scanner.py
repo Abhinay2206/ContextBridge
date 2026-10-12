@@ -18,11 +18,21 @@ SECRETS = {
     "url-password": "DATABASE_URL=postgres://admin:" + "s3cr3tPass" + "@db.internal:5432/app",
     "google-api-key": "k=" + "AIza" + "SyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6-",
     "aws-access-key": "AKIA" + "IOSFODNN7EXAMPL3",
+    "gitlab-token": "glpat-" + "aB3dE5gH7jK9mN1pQ3sT",
+    "huggingface-token": "hf_" + "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3f",
+    "digitalocean-token": "dop_" + "v1_" + "0123456789abcdef" * 4,
+    "shopify-token": "shp" + "at_" + "0123456789abcdef0123456789abcdef",
+    "mailchimp-key": "0123456789abcdef0123456789abcdef" + "-us12",
+    "telegram-bot-token": "123456789" + ":" + "AAH_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1d",
+    "pypi-token": "pypi-" + "AgEIcHlwaS5vcmc" + "aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bC1dE3fG5hI7jK9mN1pQ3sT5vW7yZ9",
 }
 CLEAN = [
     "commit 9fceb02d0ae598e95dc970b74767f19372d61af8", "id = 550e8400-e29b-41d4-a716-446655440000", "token_count = 128",
     "password: str", "secret_key = os.environ['SECRET_KEY']", "https://github.com/Abhinay2206/ContextBridge",
     "http://localhost:8080/path", "git@github.com:org/repo.git", "https://user@example.com/x", "SKIP_TESTS=1",
+    "token = self._fp.read(1)[0]", "password = self._decode_base64(arg)", "smtp.user, smtp.password = sim_auth[0], sim_auth[1]",
+    "let token = params[0].toLowerCase();", "secret_key = os.environ[\"SECRET_KEY\"]", "api_key = get_api_key_from_vault()",
+    "tokenizer = AutoTokenizer.from_pretrained(name)", "access_token = response.json()['access_token']", "password: str = field(default=None)",
     "see sk_live in the docs", "npm install npm_package", "postgres://localhost:5432/app",
 ]
 
@@ -41,6 +51,10 @@ class ScannerTests(unittest.TestCase):
             out = redact(text)
             self.assertEqual(scan(out), [], f"{name}: still detected after redact: {out!r}")
             self.assertIn("[REDACTED", out)
+
+    def test_quoted_literals_are_still_caught_even_with_punctuation(self):
+        for t in ('password = "my(pass)word1"', "api_key: 'ab12cd34ef56'", 'AUTH_TOKEN=abc123XYZ789def456'):
+            self.assertTrue(scan(t), t)
 
     def test_url_password_redaction_keeps_the_rest_of_the_url(self):
         out = redact(SECRETS["url-password"])
