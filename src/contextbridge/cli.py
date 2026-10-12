@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .core import (CBError, CTX, SCHEMA, apply, author, dump, find_root, load, new_state, next_id, now,
+from .core import (CBError, CTX, SCHEMA, apply, author, dump, find_root, git, load, lock, new_state, next_id, now,
                    redact, scan, snapshot)
 from .features import (EXIT, GATE_ADVICE, RESUME_RULES, add_decision, check_graph, drift, fmt_drift, fmt_node, gate,
                        new_graph, query, render_decisions, render_handoff, session_report, trace)
@@ -108,6 +108,10 @@ class Ctx:
                 raise
             self.err, self.state, self.graph, self.sessions = str(e), None, None, None
 
+    def reload(self):
+        """Re-read the notes from disk (call while holding the lock)."""
+        self.state, self.graph, self.sessions = (load(self.root, n, None) for n in ("state.json", "graph.json", "sessions.json"))
+
     def need(self):
         if self.state is None:
             self.state, self.graph, self.sessions = new_state(), new_graph(), {"schema": SCHEMA, "sessions": []}
@@ -165,7 +169,21 @@ def cmd_save(c):
     warn = check_graph(c.root, c.graph) + session_report(c.sessions, [d["path"] for d in snapshot(c.root)["dirty"]])
     if warn:
         print("Validation notes (not blocking):\n" + fmt_drift(warn) + "\n")
-    return cmd_checkpoint(c)
+    rc = cmd_checkpoint(c)
+    if rc == 0 and _notes_exposed(c.root):
+        print("\nTip: contextbridge/ is untracked and not ignored, so `git stash -u` or `git clean -fd` would delete it. "
+              "Commit it, or run `contextbridge init --local-only`.")
+    return rc
+
+
+def _notes_exposed(root):
+    """True when the notes are neither committed nor git-ignored (so `git stash -u` / `git clean` would remove them)."""
+    if git(root, "rev-parse", "--git-dir") is None or not (root / CTX).is_dir():
+        return False
+    tracked = git(root, "ls-files", "--", CTX)
+    if tracked:
+        return False
+    return git(root, "check-ignore", "-q", f"{CTX}/state.json") is None
 
 
 def cmd_work(c):
@@ -193,13 +211,15 @@ def cmd_run(c):
     argv = c.a.argv[1:] if c.a.argv[:1] == ["--"] else c.a.argv
     if not argv:
         raise CBError("usage: contextbridge run [--timeout N] -- <command> [args]")
-    c.need()
     snap = snapshot(c.root)
-    ev = {"id": next_id(c.state["evidence"], "E"), "cmd": " ".join(argv), "status": "running", "exit": None,
-          "ts": now(), "head": snap["head"], "fingerprint": snap["fingerprint"], "tail": ""}
-    c.state["evidence"].append(ev)
     c.a.yes = True  # recording a command the user chose to run needs no separate review
-    c.save(review=False)  # persisted first so an interrupted run stays visible as "never finished"
+    with lock(c.root):  # short critical section: allocate the evidence id and persist the "running" entry
+        c.reload()
+        c.need()
+        ev = {"id": next_id(c.state["evidence"], "E"), "cmd": " ".join(argv), "status": "running", "exit": None,
+              "ts": now(), "head": snap["head"], "fingerprint": snap["fingerprint"], "tail": ""}
+        c.state["evidence"].append(ev)
+        c.save(review=False)  # persisted first so an interrupted run stays visible as "never finished"
     t0 = time.time()
     try:
         r = subprocess.run(argv, cwd=c.root, capture_output=True, text=True, errors="replace", timeout=c.a.timeout)
@@ -212,7 +232,15 @@ def cmd_run(c):
     ev["tail"] = redact("\n".join(out.strip().splitlines()[-15:]))[-1500:]
     ev["seconds"] = round(time.time() - t0, 2)
     c.a.redact = True
-    c.save(review=False)
+    with lock(c.root):  # the command may have taken minutes; merge into whatever other writers saved meanwhile
+        c.reload()
+        c.need()
+        cur = next((e for e in c.state["evidence"] if e["id"] == ev["id"]), None)
+        if cur is None:
+            c.state["evidence"].append(ev)
+        else:
+            cur.update(ev)
+        c.save(review=False)
     print(f"{ev['id']} `{ev['cmd']}` -> {ev['status'].upper()} (exit {ev['exit']}, {ev['seconds']}s)")
     return 0 if ev["status"] == "passed" else 1
 
@@ -351,12 +379,23 @@ def cmd_scan(c):
     return 2 if bad else 0
 
 
+def _writes(a):
+    """Commands that read-modify-write the notes. `run` takes the lock itself, in two short sections, so a long test
+    command does not block other writers."""
+    if a.cmd in ("init", "checkpoint", "save", "work", "assume", "decision", "import"):
+        return True
+    return (a.cmd == "session" and a.sub in ("start", "finish")) or (a.cmd == "graph" and a.sub == "render")
+
+
 def main(argv=None):
     for st in (sys.stdout, sys.stderr):
         if hasattr(st, "reconfigure"):
             st.reconfigure(encoding="utf-8", errors="replace")  # Windows consoles default to cp1252
     a = build().parse_args(argv)
     try:
+        if _writes(a):  # hold the lock from loading to saving so parallel writers cannot overwrite each other
+            with lock(find_root(a.root)):
+                return globals()[f"cmd_{a.cmd}"](Ctx(a))
         return globals()[f"cmd_{a.cmd}"](Ctx(a))
     except CBError as e:
         print(f"error: {e}", file=sys.stderr)

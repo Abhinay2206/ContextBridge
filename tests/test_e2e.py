@@ -289,6 +289,53 @@ class E2E(unittest.TestCase):
         self.assertIn("Objective: obj", s.stdout)
         self.assertNotIn("Traceback", s.stderr)
 
+    # ---- 0.3.3 fixes
+    def test_parallel_writers_do_not_lose_evidence(self):
+        from concurrent.futures import ThreadPoolExecutor
+        r = self.r
+        r.cb("checkpoint")
+        def job(_):
+            return [r.cb("run", "--", sys.executable, "-c", "pass").returncode for _ in range(3)]
+        with ThreadPoolExecutor(6) as ex:
+            codes = [c for cs in ex.map(job, range(6)) for c in cs]
+        self.assertEqual(set(codes), {0})
+        ev = r.state()["evidence"]
+        self.assertEqual(len(ev), 18)
+        self.assertEqual(len({e["id"] for e in ev}), 18)
+        self.assertTrue(all(e["status"] == "passed" for e in ev))
+
+    def test_non_object_or_malformed_state_blocks_instead_of_crashing(self):
+        r = self.r
+        r.cb("checkpoint")
+        for body, needle in (("[1, 2]", "not a JSON object"), ('"text"', "not a JSON object"),
+                             (json.dumps({"schema": "contextbridge/1", "snapshot": {"git": True, "branch": "main", "head": "x", "dirty": []}}), "malformed")):
+            (r.p / "contextbridge/state.json").write_text(body, encoding="utf-8")
+            g = r.cb("resume", "--check")
+            self.assertEqual(g.returncode, 2, g.stderr)
+            self.assertIn("BLOCKED", g.stdout)
+            self.assertIn(needle, g.stdout)
+            self.assertNotIn("Traceback", g.stdout + g.stderr)
+
+    def test_gate_output_is_bounded_for_many_changed_files(self):
+        r = self.r
+        r.cb("run", "--", sys.executable, "-c", "pass")
+        r.cb("checkpoint")
+        for i in range(300):
+            r.write(f"gen/f{i}.txt", f"{i}\n")
+        out = r.cb("resume", "--check").stdout
+        self.assertIn("... and 295 more files: new uncommitted change since checkpoint", out)
+        self.assertLess(len(out.splitlines()), 20)
+        self.assertLess(len(out), 2500)
+
+    def test_save_warns_when_notes_are_exposed_to_git_clean(self):
+        r = self.r
+        self.assertIn("git stash -u", r.cb("save", "--objective", "o").stdout)
+        r2 = Repo()
+        r2.cb("init", "--local-only")
+        self.assertNotIn("git stash -u", r2.cb("save", "--objective", "o").stdout)
+        r2.sh("git", "stash", "-q", "-u")
+        self.assertEqual(r2.cb("resume", "--check").returncode, 0)  # notes survive with --local-only
+
     def test_save_reports_validation_notes_then_checkpoints(self):
         r = self.r
         r.cb("decision", "add", "D", "--why", "w", "--code", "gone.py")
