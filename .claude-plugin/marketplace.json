@@ -1,10 +1,10 @@
 {
-  "name": "orvantia-contextbridge",
+  "name": "abhinay-contextbridge",
   "owner": {
-    "name": "Orvantia"
+    "name": "Abhinay"
   },
   "metadata": {
-    "description": "Orvantia's local-first project context handoff plugin.",
+    "description": "Abhinay's local-first project context handoff plugin.",
     "version": "0.3.1"
   },
   "plugins": [
@@ -14,7 +14,7 @@
       "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
       "version": "0.3.1",
       "author": {
-        "name": "Orvantia"
+        "name": "Abhinay"
       },
       "license": "MIT",
       "category": "development",

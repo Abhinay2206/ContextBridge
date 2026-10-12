@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please do not publish exploitable details in a public issue. Until a dedicated security contact is configured, contact the maintainer privately through the contact method listed on the official Orvantia website. Do not include real secrets or customer data in reports.
+Please do not publish exploitable details in a public issue. Until a dedicated security contact is configured, contact the maintainer privately through the contact method listed on the maintainer's GitHub profile (https://github.com/Abhinay2206). Do not include real secrets or customer data in reports.
 
 ## Scope and data handling
 

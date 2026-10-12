@@ -12,6 +12,18 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifest["name"], "contextbridge")
         self.assertTrue(manifest["version"])
 
+    def test_version_is_identical_everywhere(self):
+        pyproject = re.search(r'(?m)^version = "(.+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
+        init = re.search(r'__version__ = "(.+)"', (ROOT / "src/contextbridge/__init__.py").read_text(encoding="utf-8")).group(1)
+        plugin = json.loads((ROOT / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+        market = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+        versions = {pyproject, init, plugin, market["metadata"]["version"], market["plugins"][0]["version"]}
+        self.assertEqual(len(versions), 1, versions)
+
+    def test_owner_is_consistent(self):
+        for f in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "LICENSE", "pyproject.toml"):
+            self.assertNotIn("orvantia", (ROOT / f).read_text(encoding="utf-8").lower(), f)
+
     def test_skill_frontmatter_and_required_fields(self):
         skill = (ROOT / "skills/contextbridge/SKILL.md").read_text(encoding="utf-8")
         self.assertTrue(skill.startswith("---\n"))

@@ -3,7 +3,7 @@
   "version": "0.3.1",
   "description": "Checkpoint and resume repository-local project context across fresh Claude sessions and accounts.",
   "author": {
-    "name": "Orvantia"
+    "name": "Abhinay"
   },
   "license": "MIT",
   "keywords": ["context", "handoff", "project-memory", "checkpoint", "resume"]

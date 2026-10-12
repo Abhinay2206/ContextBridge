@@ -141,7 +141,7 @@ These are two different mechanisms. Install the one you need.
 
 ```text
 /plugin marketplace add Abhinay2206/ContextBridge
-/plugin install contextbridge@orvantia-contextbridge
+/plugin install contextbridge@abhinay-contextbridge
 ```
 
 **Claude.ai skill** is a separate upload of [`dist/contextbridge-skill.zip`](dist/contextbridge-skill.zip) under Customize → Skills (menu names may vary). A browser chat cannot read your local repository or run the CLI unless you provide files or a code-execution environment.

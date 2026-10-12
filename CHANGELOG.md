@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Fix: `contextbridge --version` reported 0.3.0 for the 0.3.1 release; a test now keeps the version identical across `pyproject.toml`, `__init__.py` and both plugin manifests.
+- Project owner/author is now Abhinay in the plugin manifests. **Breaking for plugin users:** the marketplace is now `abhinay-contextbridge`, so install with `/plugin install contextbridge@abhinay-contextbridge` (re-add the marketplace if you installed it before).
+
 ## 0.3.1
 - Added explicit Python 3.9 through 3.13 classifiers so package indexes can show supported Python versions.
 - PyPI publishing now runs when a version tag is pushed.
